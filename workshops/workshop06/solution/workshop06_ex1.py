@@ -1,9 +1,10 @@
 """
-Template for workshop 6, exercise 1
+Solution for workshop 6, exercise 1
 """
 
 from dataclasses import dataclass
 import numpy as np
+from scipy.optimize import minimize, root_scalar
 
 
 @dataclass
@@ -11,20 +12,25 @@ class Parameters:
     """
     Container to store the problem's parameters.
     """
-    
+    alpha: float = 0.36     # Capital share in production function
+    z: float = 1.0          # TFP 
+    gamma: float = 2.0      # RRA in utility
+    psi: float = 1.0        # Weight on disutility of working
+    theta: float = 0.5      # Frisch elasticity of labor supply
+
 
 @dataclass
 class Equilibrium:
     """
     Container to store equilibrium allocations and prices.
     """
-    par: Parameters = None
-    c: float = None
-    h: float = None
-    w: float = None
-    L: float = None
-    Y: float = None
-    Pi: float = None
+    par: Parameters = None      # Parameters used to solve the equilibrium
+    c: float = None             # Optimal consumption
+    h: float = None             # Optimal labor supply
+    w: float = None             # Equilibrium wage
+    L: float = None             # Aggregate labor demand
+    Y: float = None             # Aggregate output
+    Pi: float = None            # Aggregate profits
 
 
 
@@ -83,10 +89,28 @@ def solve_hh(w, pi, par: Parameters):
         Optimal labor supply
     """
 
-    # TODO:
-    # 1. call minimizer to find the optimal hours choice
-    # 2. compute optimal consumption from budget constraint
-    # 3. return optimal consumption and labor supply
+    # Initial guess for h
+    h_guess = 0.5
+
+    res = minimize(
+        lambda h: -util(w * h + pi, h, par),
+        x0=h_guess,
+        method='L-BFGS-B',
+        bounds=((0, None), )
+    )
+
+    if not res.success:
+        # Print diagnostic error message if minimizer had problems
+        print('Minimizer did not terminate successfully')
+        print(res.message)
+        print(f'  Arguments: w={w}, pi={pi}')
+
+    # Store optimal hours choice
+    h_opt = res.x[0]
+    # Optimal consumption follows from budget constraint
+    c_opt = w * h_opt + pi
+
+    return c_opt, h_opt
 
 
 
@@ -112,11 +136,16 @@ def solve_firm(w, par: Parameters):
         Aggregate profits
     """
 
-    # TODO:
-    # 1. compute labor demand L from firm's FOC
-    # 2. compute output Y
-    # 3. compute profits Pi
-    # 4. return labor demand, output, and profits
+    # Labor demand
+    L = ((1-par.alpha) * par.z / w)**(1/par.alpha)
+
+    # Output
+    Y = par.z * L**(1-par.alpha)
+
+    # Profits
+    Pi = Y - w * L
+
+    return L, Y, Pi
 
 
 
@@ -137,11 +166,16 @@ def compute_labor_ex_demand(w, par: Parameters):
         Excess demand for labor
     """
 
-    # TODO:
-    # 1. compute labor demand, output, and profits using solve_firm()
-    # 2. compute optimal consumption and labor supply using solve_hh()
-    # 3. compute excess demand for labor
-    # 4. return excess demand
+    # Wage and profits implied by firm's first-order condition
+    L, Y, Pi = solve_firm(w, par)    
+
+    # Optimal household choices for given prices
+    c_opt, h_opt = solve_hh(w, Pi, par)
+
+    # Excess demand for labor
+    ex_demand = L - h_opt
+
+    return ex_demand
 
 
 
@@ -160,11 +194,26 @@ def compute_equilibrium(par):
         Equilibrium instance containing equilibrium values
     """
 
-    # TODO:
-    # 1. call root-finder to find equilibrium wage
-    # 2. compute and store equilibrium values from firm problem
-    # 3. compute and store equilibrium values from household problem
-    # 4. return Equilibrium instance
+    # Define initial bracket for root finder
+    bracket = (1.0e-3, 5)
+
+    res = root_scalar(
+        compute_labor_ex_demand, bracket=bracket, args=(par, )
+    )
+
+    if not res.converged:
+        print('Equilibrium root-finder did not terminate successfully')
+
+    # Create instance of equilibrium class
+    eq = Equilibrium(par=par, w=res.root)
+
+    # Equilibrium wage, output and profits
+    eq.L, eq.Y, eq.Pi = solve_firm(eq.w, par)
+
+    # Equilibrium household choices
+    eq.c, eq.h = solve_hh(eq.w, eq.Pi, par)
+
+    return eq
 
 
 def print_equilibrium(eq: Equilibrium):
@@ -183,6 +232,7 @@ def print_equilibrium(eq: Equilibrium):
     print(f'    h = {eq.h:.5f}')
     print('  Firms:')
     print(f'    Y = {eq.Y:.5f}')
+    print(f'    L = {eq.L:.5f}')
     print(f'    Pi = {eq.Pi:.5f}')
     print('  Prices:')
     print(f'    w = {eq.w:.5f}')
@@ -206,21 +256,31 @@ def compute_analytical_solution(par: Parameters):
         Analytical solution for labor supply
     """
 
-    # TODO:
-    # 1. compute analytical solution for labor supply using optimality condition
-    # 2. return analytical solution
+    # Base from the analytical formula for L from (1.2)
+    x = (1-par.alpha) * par.z**(1-par.gamma) / par.psi
+    # Exponent in the analytical formula for L
+    xp = 1/(1/par.theta + par.alpha + par.gamma*(1-par.alpha))
+
+    L = x**xp
+
+    return L
 
 
 if __name__ == '__main__':
     """
-    Main script to compute and compare equilibrium and analytical solution.
+    Main script to compute and print the equilibrium of the model.
     """
+    
+    # Get instance of default parameter values
+    par = Parameters()
 
-    # TODO:
-    # 1. create instance of default parameters
-    # 2. compute equilibrium
-    # 3. print equilibrium values
-    # 4. compute analytical solution
-    # 5. print analytical solution
+    # Solve for equilibrium
+    eq = compute_equilibrium(par)
 
+    # Print equilibrium quantities and prices
+    print_equilibrium(eq)
+
+    # Compare to analytical solution
+    L = compute_analytical_solution(par)
+    print(f'Analytical solution: h = L = {L:.5f}')
 
